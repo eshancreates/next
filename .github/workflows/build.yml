@@ -27,7 +27,7 @@ jobs:
 
       - name: Build
         run: |
-          # ad-hoc builds are killed by macOS if this entitlement is present
+          set -o pipefail
           plutil -remove com.apple.security.mach-services DynamicIsland/DynamicIsland.entitlements || true
           xcodebuild build \
             -project DynamicIsland.xcodeproj \
@@ -35,10 +35,20 @@ jobs:
             -configuration Release \
             -destination "platform=macOS" \
             -derivedDataPath build \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
             CODE_SIGN_IDENTITY="-" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=YES \
-            CODE_SIGN_INJECT_BASE_ENTITLEMENTS=YES
+            CODE_SIGN_INJECT_BASE_ENTITLEMENTS=YES \
+            2>&1 | tee build.log
+
+      - name: Report errors
+        if: failure()
+        run: |
+          xcodebuild -version | head -2 | while read l; do echo "::notice::$l"; done
+          grep -E "error:|fatal error|Fatal|requires|Unable to|could not" build.log | sort -u | head -15 | while IFS= read -r l; do echo "::error::${l:0:700}"; done
+          echo "::error::LAST LINES: $(tail -n 25 build.log | cut -c1-200 | sed 's/$/ | /' | tr -d '\n' | cut -c1-2500)"
 
       - name: Package
         run: |
@@ -50,3 +60,9 @@ jobs:
         with:
           name: NEXT-app
           path: NEXT.zip
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: build-log
+          path: build.log
